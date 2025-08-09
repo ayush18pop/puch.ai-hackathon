@@ -1,0 +1,40 @@
+{
+  "abf27775ddb9": {
+    "playerId": "abf27775ddb9",
+    "playerName": "Ayush",
+    "wordToGuess": "SOFTWARE",
+    "displayWord": [
+      "_",
+      "_",
+      "_",
+      "_",
+      "_",
+      "_",
+      "_",
+      "_"
+    ],
+    "guessedLetters": [],
+    "incorrectGuesses": 0,
+    "gameStatus": "ongoing",
+    "startTime": 1754681835.115629
+  },
+  "abf2775ddb9": {
+    "playerId": "abf2775ddb9",
+    "playerName": "Ayush",
+    "wordToGuess": "COMPUTER",
+    "displayWord": [
+      "_",
+      "_",
+      "_",
+      "_",
+      "_",
+      "_",
+      "_",
+      "_"
+    ],
+    "guessedLetters": [],
+    "incorrectGuesses": 0,
+    "gameStatus": "ongoing",
+    "startTime": 1754681846.9236777
+  }
+}

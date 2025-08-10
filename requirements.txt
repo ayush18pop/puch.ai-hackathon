@@ -5,3 +5,4 @@ anyio
 httpx
 cryptography
 typing-extensions
+python-dateutil

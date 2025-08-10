@@ -1,14 +1,18 @@
 import asyncio
-from typing import Annotated
+import datetime
 import os
-import random
+from typing import Annotated
+
+import httpx
+from dateutil import parser
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.bearer import BearerAuthProvider, RSAKeyPair
 from mcp import ErrorData, McpError
 from mcp.server.auth.provider import AccessToken
-from mcp.types import INVALID_PARAMS, INTERNAL_ERROR
+from mcp.types import INTERNAL_ERROR, INVALID_PARAMS
 from pydantic import BaseModel, Field
+from urllib.parse import urlparse
 
 # --- Load environment variables ---
 load_dotenv()
@@ -21,6 +25,7 @@ assert MY_NUMBER is not None, "Please set MY_NUMBER in your .env file"
 
 # --- Auth Provider ---
 class SimpleBearerAuthProvider(BearerAuthProvider):
+    """A simple bearer token authentication provider."""
     def __init__(self, token: str):
         k = RSAKeyPair.generate()
         super().__init__(public_key=k.public_key, jwks_uri=None, issuer=None, audience=None)
@@ -28,300 +33,164 @@ class SimpleBearerAuthProvider(BearerAuthProvider):
 
     async def load_access_token(self, token: str) -> AccessToken | None:
         if token == self.token:
-            return AccessToken(
-                token=token,
-                client_id="hangman-client",
-                scopes=["*"],
-                expires_at=None,
-            )
+            return AccessToken(token=token, client_id="puch-client", scopes=["*"], expires_at=None)
         return None
 
-# --- Rich Tool Description model ---
-class RichToolDescription(BaseModel):
-    description: str
-    use_when: str
-    side_effects: str | None = None
+# --- Data Models for Tool Outputs ---
+class GitHubProfileData(BaseModel):
+    # ... (same as before)
+    username: str; name: str | None; bio: str | None; followers: int; following: int; public_repos: int; total_stars: int; fork_count: int; account_age_days: int; last_activity_days: int; top_languages: list[str]; twitter_username: str | None; ai_instruction: str
 
-# --- Hangman Game Class ---
-class HangmanGame:
-    def __init__(self):
-        # Array of words to choose from
-        self.words = [
-            "PYTHON", "JAVASCRIPT", "COMPUTER", "PROGRAMMING", "ALGORITHM",
-            "DATABASE", "NETWORK", "SOFTWARE", "HARDWARE", "INTERNET",
-            "FUNCTION", "VARIABLE", "BOOLEAN", "INTEGER", "STRING",
-            "FRAMEWORK", "LIBRARY", "DEBUGGING", "COMPILER", "SYNTAX"
-        ]
-        
-        # Hangman stick figure stages (6 wrong guesses allowed)
-        self.hangman_stages = [
-            """
-   +---+
-   |   |
-       |
-       |
-       |
-       |
-=========
-            """,
-            """
-   +---+
-   |   |
-   O   |
-       |
-       |
-       |
-=========
-            """,
-            """
-   +---+
-   |   |
-   O   |
-   |   |
-       |
-       |
-=========
-            """,
-            """
-   +---+
-   |   |
-   O   |
-  /|   |
-       |
-       |
-=========
-            """,
-            """
-   +---+
-   |   |
-   O   |
-  /|\\  |
-       |
-       |
-=========
-            """,
-            """
-   +---+
-   |   |
-   O   |
-  /|\\  |
-  /    |
-       |
-=========
-            """,
-            """
-   +---+
-   |   |
-   O   |
-  /|\\  |
-  / \\  |
-       |
-=========
-            """
-        ]
-        
-        self.reset_game()
-    
-    def reset_game(self):
-        """Start a new game"""
-        self.current_word = random.choice(self.words)
-        self.guessed_letters = set()
-        self.wrong_guesses = 0
-        self.max_wrong_guesses = 6
-        self.game_over = False
-        self.won = False
-    
-    def get_display_word(self):
-        """Show the word with guessed letters revealed"""
-        return " ".join([letter if letter in self.guessed_letters else "_" 
-                        for letter in self.current_word])
-    
-    def make_guess(self, letter):
-        """Make a guess and return the game state"""
-        if self.game_over:
-            return "Game is over! Start a new game."
-        
-        letter = letter.upper()
-        
-        # Check if letter was already guessed
-        if letter in self.guessed_letters:
-            return f"You already guessed '{letter}'. Try a different letter!"
-        
-        # Check if it's a valid single letter
-        if len(letter) != 1 or not letter.isalpha():
-            return "Please guess a single letter only!"
-        
-        # Add letter to guessed letters
-        self.guessed_letters.add(letter)
-        
-        # Check if letter is in the word
-        if letter in self.current_word:
-            # Check if word is complete
-            if all(letter in self.guessed_letters for letter in self.current_word):
-                self.game_over = True
-                self.won = True
-        else:
-            self.wrong_guesses += 1
-            if self.wrong_guesses >= self.max_wrong_guesses:
-                self.game_over = True
-                self.won = False
-        
-        return self.get_game_status()
-    
-    def get_game_status(self):
-        """Get current game status as a formatted string"""
-        status = "```\n" + self.hangman_stages[self.wrong_guesses] + "```\n"
-        status += f"Word: {self.get_display_word()}\n"
-        status += f"Letters guessed: {', '.join(sorted(self.guessed_letters)) if self.guessed_letters else 'None'}\n"
-        status += f"Wrong guesses: {self.wrong_guesses}/{self.max_wrong_guesses}\n"
-        status += f"Remaining guesses: {self.max_wrong_guesses - self.wrong_guesses}\n\n"
-        
-        if self.game_over:
-            if self.won:
-                status += "🎉 **CONGRATULATIONS! YOU WON!** 🎉\n"
-                status += f"The word was: **{self.current_word}**"
-            else:
-                status += "💀 **GAME OVER! YOU LOST!** 💀\n"
-                status += f"The word was: **{self.current_word}**"
-        else:
-            status += "Keep guessing! Enter a letter... 🎯"
-        
-        return status
+# --- NEW: Create a Pydantic model for LeetCode data ---
+class LeetCodeProfileData(BaseModel):
+    """Structured data for a LeetCode user's profile."""
+    username: str
+    ranking: int
+    reputation: int
+    total_problems_solved: int
+    easy_solved: int
+    medium_solved: int
+    hard_solved: int
+    acceptance_rate: float
+    ai_instruction: str
 
-# --- Global game instance ---
-game = HangmanGame()
-
-# --- MCP Server Setup ---
+# --- MCP Server Setup (Updated Name) ---
 mcp = FastMCP(
-    "Hangman Game MCP Server",
+    "Developer Profile Roaster MCP",
     auth=SimpleBearerAuthProvider(TOKEN),
 )
 
-# --- Tool: validate (required by Puch) ---
+# --- Mandatory Validate Tool ---
 @mcp.tool
 async def validate() -> str:
     return MY_NUMBER
 
-# --- Tool: start_new_game ---
-StartGameDescription = RichToolDescription(
-    description="Start a new hangman game with a random word",
-    use_when="Use this when the user wants to start a new hangman game or restart the current one",
-    side_effects="Resets the current game state and selects a new random word"
-)
+# --- Helper function for GitHub ---
+def _extract_username(username_or_url: str) -> str | None:
+    # ... (same as before)
+    cleaned_input = username_or_url.strip();
+    if "github.com" in cleaned_input:
+        try: path = urlparse(cleaned_input).path; parts = path.strip('/').split('/'); return parts[0] if parts and parts[0] else None
+        except Exception: return None
+    return cleaned_input
 
-@mcp.tool(description=StartGameDescription.model_dump_json())
-async def start_new_game() -> str:
-    """Start a new hangman game"""
-    game.reset_game()
-    
-    status = "🎮 **NEW HANGMAN GAME STARTED!** 🎮\n\n"
-    status += game.get_game_status()
-    status += f"\n\nHint: The word has {len(game.current_word)} letters and is related to programming/computers!"
-    
-    return status
+# --- TOOL 1: GitHub Profile Data (Unchanged) ---
+@mcp.tool
+async def get_github_profile_data(username_or_url: Annotated[str, Field(description="The GitHub username or full profile URL.")]) -> GitHubProfileData:
+    # ... (This entire function is the same as the previous version)
+    username = _extract_username(username_or_url)
+    if not username: raise McpError(ErrorData(code=INVALID_PARAMS, message="Invalid username or URL."))
+    async with httpx.AsyncClient() as client:
+        headers = {"User-Agent": "Puch-MCP-DataFetcher/1.0", "Accept": "application/vnd.github.v3+json"}
+        try:
+            profile_task = client.get(f"https://api.github.com/users/{username}", headers=headers, timeout=10)
+            repos_task = client.get(f"https://api.github.com/users/{username}/repos?per_page=100", headers=headers, timeout=10)
+            responses = await asyncio.gather(profile_task, repos_task, return_exceptions=True)
+            profile_response, repos_response = responses
+            if isinstance(profile_response, Exception): raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Failed to fetch profile: {profile_response!r}"))
+            if profile_response.status_code == 404: raise McpError(ErrorData(code=INVALID_PARAMS, message=f"User '{username}' not found on GitHub."))
+            if profile_response.status_code != 200: raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"GitHub API returned {profile_response.status_code} for profile."))
+            profile = profile_response.json()
+            repos = []
+            if isinstance(repos_response, httpx.Response) and repos_response.status_code == 200: repos = repos_response.json()
+            public_repos = profile.get('public_repos', 0); followers = profile.get('followers', 0); twitter_username = profile.get('twitter_username')
+            total_stars = sum(repo.get('stargazers_count', 0) for repo in repos); fork_count = sum(1 for repo in repos if repo.get('fork', False))
+            lang_counts = {};
+            for repo in repos:
+                lang = repo.get('language')
+                if lang and lang != "null": lang_counts[lang] = lang_counts.get(lang, 0) + 1
+            top_languages = sorted(lang_counts, key=lang_counts.get, reverse=True)[:3]
+            created_date = parser.parse(profile.get('created_at', '')); account_age_days = (datetime.datetime.now(datetime.timezone.utc) - created_date).days
+            updated_date = parser.parse(profile.get('updated_at', '')); last_activity_days = (datetime.datetime.now(datetime.timezone.utc) - updated_date).days
+            github_stats_summary = (f"The GitHub user '{username}' has {public_repos} public repos with a total of {total_stars} stars, and {followers} followers. Their account is {account_age_days} days old.")
+            twitter_instruction = ""
+            if twitter_username: twitter_instruction = f"They also have a Twitter (X) account: @{twitter_username}. Make sure to roast them for probably posting cringe tech takes or having zero engagement there."
+            else: twitter_instruction = "They did not list a Twitter (X) account, so roast them for being out of the loop or afraid of public scrutiny."
+            instruction = (f"{github_stats_summary} {twitter_instruction} Based on all this data, perform the following two tasks. Part 1: Write a long, detailed, and brutal roast that combines both their GitHub and Twitter persona. Part 2: After the roast, provide a separate section titled 'Actionable Tips' with 3 concrete pieces of advice for improving their overall online developer presence.")
+            return GitHubProfileData(username=profile.get('login'), name=profile.get('name'), bio=profile.get('bio'), followers=followers, following=profile.get('following', 0), public_repos=public_repos, total_stars=total_stars, fork_count=fork_count, account_age_days=account_age_days, last_activity_days=last_activity_days, top_languages=top_languages, twitter_username=twitter_username, ai_instruction=instruction)
+        except httpx.HTTPError as e: raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"API connection failed: {e!r}"))
 
-# --- Tool: user_tool_make_guess ---
-GuessDescription = RichToolDescription(
-    description="Make a letter guess in the current hangman game",
-    use_when="Use this when the user wants to guess a letter in the hangman game",
-    side_effects="Updates the game state, reveals letters if correct, or adds to wrong guesses if incorrect"
-)
-
-@mcp.tool(description=GuessDescription.model_dump_json())
-async def user_tool_make_guess(
-    letter: Annotated[str, Field(description="The letter to guess (single character)")]
-) -> str:
-    """Make a guess in the hangman game"""
-    if not hasattr(game, 'current_word') or not game.current_word:
-        return "❌ No game in progress! Please start a new game first."
-    
-    letter = letter.upper().strip()
-    
-    # Check if already guessed
-    if letter in game.guessed_letters:
-        status = f"🎮 **HANGMAN GAME** 🎮\n\n"
-        status += f"You already guessed '{letter}'!\n\n"
-        status += game.get_game_status()
-        return status
-    
-    # Check if letter is in word
-    if letter in game.current_word:
-        game.guessed_letters.add(letter)
-        # Check if won
-        if all(l in game.guessed_letters for l in game.current_word):
-            game.game_over = True
-            game.won = True
-        
-        status = f"🎮 **HANGMAN GAME** 🎮\n\n"
-        status += f"✅ Great! '{letter}' is in the word!\n\n"
-        status += game.get_game_status()
-        return status
-    else:
-        game.guessed_letters.add(letter)
-        game.wrong_guesses += 1
-        if game.wrong_guesses >= game.max_wrong_guesses:
-            game.game_over = True
-            game.won = False
-        
-        status = f"🎮 **HANGMAN GAME** 🎮\n\n"
-        status += f"❌ Sorry, '{letter}' is not in the word.\n\n"
-        status += game.get_game_status()
-        return status
-
-# --- Tool: get_game_status ---
-StatusDescription = RichToolDescription(
-    description="Get the current status of the hangman game",
-    use_when="Use this when the user wants to see the current game state without making a guess",
-    side_effects="None - just displays current game information"
-)
-
-@mcp.tool(description=StatusDescription.model_dump_json())
-async def get_game_status() -> str:
-    """Get current game status"""
-    if not hasattr(game, 'current_word') or not game.current_word:
-        return "No game in progress! Please start a new game first."
-    
-    return f"🎮 **HANGMAN GAME STATUS** 🎮\n\n{game.get_game_status()}"
-
-# --- Tool: game_rules ---
-RulesDescription = RichToolDescription(
-    description="Explain the rules of hangman game",
-    use_when="Use this when the user wants to understand how to play hangman",
-    side_effects="None - just provides information"
-)
-
-@mcp.tool(description=RulesDescription.model_dump_json())
-async def game_rules() -> str:
-    """Explain hangman game rules"""
-    rules = """
-🎮 **HANGMAN GAME RULES** 🎮
-
-📝 **How to Play:**
-1. I'll pick a random word related to programming/computers
-2. You see blank spaces representing each letter: _ _ _ _ _
-3. Guess letters one at a time
-4. If your letter is in the word, it gets revealed in all positions
-5. If your letter is NOT in the word, part of the hangman gets drawn
-6. You have 6 wrong guesses before the hangman is complete
-
-🎯 **How to Win:**
-- Guess all letters in the word before making 6 wrong guesses
-
-💀 **How to Lose:**
-- Make 6 wrong guesses and the hangman drawing is completed
-
-🎲 **Commands:**
-- Use `start_new_game` to begin a new game
-- Use `make_guess` with a letter to guess
-- Use `get_game_status` to see current progress
-
-Good luck! 🍀
+# --- NEW TOOL 2: LeetCode Profile Data ---
+@mcp.tool
+async def get_leetcode_profile_data(username: Annotated[str, Field(description="The LeetCode username.")]) -> LeetCodeProfileData:
     """
-    return rules.strip()
+    Fetches problem-solving stats for a given LeetCode user and includes
+    a hardcoded instruction for the AI to roast them.
+    """
+    api_url = "https://leetcode.com/graphql"
+    graphql_query = """
+    query getUserProfile($username: String!) {
+        matchedUser(username: $username) {
+            username
+            profile {
+                ranking
+                reputation
+            }
+            submitStats: submitStatsGlobal {
+                acSubmissionNum {
+                    difficulty
+                    count
+                    submissions
+                }
+            }
+        }
+    }
+    """
+    variables = {"username": username}
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(api_url, json={'query': graphql_query, 'variables': variables}, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json().get("data", {}).get("matchedUser")
+            if not data:
+                raise McpError(ErrorData(code=INVALID_PARAMS, message=f"User '{username}' not found on LeetCode."))
+
+            # Process the stats
+            profile_stats = data.get("profile", {})
+            submit_stats = data.get("submitStats", {}).get("acSubmissionNum", [])
+            
+            solved_all = next((s for s in submit_stats if s['difficulty'] == 'All'), {})
+            easy_solved = next((s for s in submit_stats if s['difficulty'] == 'Easy'), {})
+            medium_solved = next((s for s in submit_stats if s['difficulty'] == 'Medium'), {})
+            hard_solved = next((s for s in submit_stats if s['difficulty'] == 'Hard'), {})
+            
+            total_solved = solved_all.get('count', 0)
+            total_submissions = solved_all.get('submissions', 0)
+            acceptance_rate = round((total_solved / total_submissions) * 100, 2) if total_submissions > 0 else 0
+
+            # Create the hardcoded instruction for the AI
+            instruction = (
+                f"The LeetCode user '{username}' has a ranking of {profile_stats.get('ranking', 'N/A')} "
+                f"and has solved a total of {total_solved} problems ({easy_solved.get('count', 0)} Easy, "
+                f"{medium_solved.get('count', 0)} Medium, {hard_solved.get('count', 0)} Hard). "
+                f"Their overall acceptance rate is a pitiful {acceptance_rate}%. "
+                "Based on these stats, perform two tasks. "
+                "Part 1: Write a savage roast about their problem-solving skills, focusing on their acceptance rate and difficulty distribution. "
+                "Part 2: After the roast, give them a section called 'Grind Plan' with 3 actionable tips on how to actually get good at DSA."
+            )
+            
+            return LeetCodeProfileData(
+                username=data.get("username"),
+                ranking=profile_stats.get("ranking", 0),
+                reputation=profile_stats.get("reputation", 0),
+                total_problems_solved=total_solved,
+                easy_solved=easy_solved.get('count', 0),
+                medium_solved=medium_solved.get('count', 0),
+                hard_solved=hard_solved.get('count', 0),
+                acceptance_rate=acceptance_rate,
+                ai_instruction=instruction,
+            )
+        except httpx.HTTPStatusError as e:
+             raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"LeetCode API returned an error: {e.response.status_code}"))
+        except httpx.HTTPError as e:
+            raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Connection to LeetCode API failed: {e!r}"))
 
 # --- Run MCP Server ---
 async def main():
-    print("🎮 Starting Hangman MCP server on http://0.0.0.0:8086")
+    """Starts the MCP server."""
+    print("🚀 Starting Developer Profile Roaster MCP server on http://0.0.0.0:8086")
     await mcp.run_async("streamable-http", host="0.0.0.0", port=8086)
 
 if __name__ == "__main__":

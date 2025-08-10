@@ -19,6 +19,7 @@ load_dotenv()
 
 TOKEN = os.environ.get("AUTH_TOKEN")
 MY_NUMBER = os.environ.get("MY_NUMBER")
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 
 assert TOKEN is not None, "Please set AUTH_TOKEN in your .env file"
 assert MY_NUMBER is not None, "Please set MY_NUMBER in your .env file"
@@ -60,6 +61,8 @@ mcp = FastMCP(
     auth=SimpleBearerAuthProvider(TOKEN),
 )
 
+app = mcp
+
 # --- Mandatory Validate Tool ---
 @mcp.tool
 async def validate() -> str:
@@ -81,7 +84,15 @@ async def get_github_profile_data(username_or_url: Annotated[str, Field(descript
     username = _extract_username(username_or_url)
     if not username: raise McpError(ErrorData(code=INVALID_PARAMS, message="Invalid username or URL."))
     async with httpx.AsyncClient() as client:
-        headers = {"User-Agent": "Puch-MCP-DataFetcher/1.0", "Accept": "application/vnd.github.v3+json"}
+        headers = {
+            "User-Agent": "Puch-MCP-DataFetcher/1.0", 
+            "Accept": "application/vnd.github.v3+json"
+        }
+        
+        # Add GitHub token if available to avoid rate limiting
+        if GITHUB_TOKEN:
+            headers["Authorization"] = f"token {GITHUB_TOKEN}"
+        
         try:
             profile_task = client.get(f"https://api.github.com/users/{username}", headers=headers, timeout=10)
             repos_task = client.get(f"https://api.github.com/users/{username}/repos?per_page=100", headers=headers, timeout=10)

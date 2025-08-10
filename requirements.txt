@@ -1,5 +1,14 @@
-fastmcp>=2.11.2
+# For running the web server and its core dependencies
+fastmcp[server]>=2.11.2
+
+# For loading environment variables
 python-dotenv>=1.1.1
-pydantic>=2.0.0
+
+# For making API calls to GitHub and LeetCode
 httpx
+
+# For parsing dates from the APIs (CRITICAL)
+python-dateutil
+
+# For running the app in production on Render
 gunicorn

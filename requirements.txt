@@ -1,8 +1,5 @@
 fastmcp>=2.11.2
 python-dotenv>=1.1.1
 pydantic>=2.0.0
-anyio
 httpx
-cryptography
-typing-extensions
-python-dateutil
+gunicorn
